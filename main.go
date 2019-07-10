@@ -1,78 +1,135 @@
 package main
 
 import (
-	"NRApplication/btree"
+	"NumberApp/fileWriter"
+	"NumberApp/processor"
+	"NumberApp/reporting"
 	"bufio"
-	"errors"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
+	"sync"
 )
 
-const maxConnections = 2
+const maxConnections = 5
+const dataLength = 9
+const terminationSignalMessage = "terminate"
 
-var tree = btree.New(5)
+//const terminationSignalLen = len(terminationSignalMessage)
+
+var wg sync.WaitGroup
+var gracefulStop = make(chan bool, maxConnections)
 
 func main() {
-
 	ln, err := net.Listen("tcp", ":4000")
-	if err != nil {
-		// handle error
-	}
 	fmt.Println("Listening localhost 4000")
+	if err != nil {
+		panic(err)
+	}
 
-	guard := make(chan struct{}, maxConnections)
+	go processor.MessagesProcessor()
+	fileWriter.InitWriter()
+
+	run(ln)
+	wg.Wait()
+
+	handleTermination(ln)
+}
+
+func run(ln net.Listener) {
+	limit := make(chan struct{}, maxConnections)
+
 	for {
-
-		guard <- struct{}{}
-		conn, err := ln.Accept()
-		if err != nil {
-			// handle error
+		limit <- struct{}{}
+		select {
+		case <-gracefulStop:
+			gracefulStop <- true
+			return
+		default:
 		}
+
+		conn, err := ln.Accept()
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 		go func() {
-			//todo limit to max 5, add config
-			handleConnection(conn)
-			<-guard
+			wg.Add(1)
+			handleConnection(conn, gracefulStop)
+			<-limit
+			wg.Done()
 		}()
 	}
 }
 
-func handleConnection(connection net.Conn) {
-	fmt.Println("Started new routine")
+func handleConnection(connection net.Conn, gracefulStop chan bool) {
+	fmt.Println("Started a new routine")
+
+	reader := bufio.NewReader(connection)
 	for {
-		//todo check if possible use win and unix term sequence
-		//todo limit input max 10 symbols, add config
-		message, err := bufio.NewReader(connection).ReadString('\n')
+		select {
+		case <-gracefulStop:
+			fmt.Println("Graceful stop routine")
+			_ = connection.Close()
+			gracefulStop <- true
+			return
+		default:
+		}
+
+		message, err := reader.ReadBytes('\n')
+
 		if err != nil {
-			fmt.Printf("Happend: %s\n", err.Error())
+			fmt.Printf("Network event happend: %s\n", err.Error())
 			break
 		}
 
-		//remove line spearator
-		message = message[0 : len(message)-1]
-
-		err = checkFormat(&message)
+		err = checkFormat(message)
 		if err != nil {
 			fmt.Printf("Invalid format: %s\n", err.Error())
 			break
 		}
 
-		fmt.Print("Message Received:", message)
+		i, err := convertToInt(message)
+		if err != nil {
+			if isTerminationSignal(message) {
+				fmt.Println("Termination signal received")
+				_ = connection.Close()
+				gracefulStop <- true
+				return
+			}
+			fmt.Printf("Invalid format: %s\n", err.Error())
+			break
+		}
+		processor.AddMessageToQueue(i, message)
 	}
 	_ = connection.Close()
 	fmt.Println("Routine closed")
 }
 
-func checkFormat(str *string) error {
+func convertToInt(message []byte) (int, error) {
+	s := string(message[0 : len(message)-1])
+	return strconv.Atoi(s)
+}
 
-	if len(*str) != 9 {
-		return errors.New("length should be 9")
+func checkFormat(message []byte) error {
+	if len(message) != dataLength+1 {
+		return fmt.Errorf("length should be %d, line %s", dataLength, message)
 	}
-
-	//value, err := strconv.Atoi(*str)
-	//if err != nil {
-	//	return err
-	//}
-
-	//tree.ReplaceOrInsert(value)
 	return nil
+}
+
+func isTerminationSignal(message []byte) bool {
+	return string(message[0:len(message)-1]) == terminationSignalMessage
+}
+
+func handleTermination(listener net.Listener) {
+	fmt.Println("Terminating")
+	_ = listener.Close()
+	processor.CloseMessagesProcessor()
+	fileWriter.ShutDown()
+	reporting.PrintReport()
+	os.Exit(0)
 }
