@@ -9,7 +9,7 @@ import (
 )
 
 var recordedValues [1000000000]bool
-var numbersChannel = make(chan messageToWrite, 500000)
+var numbersChannel = make(chan messageToWrite, 1000000)
 var wgProcessor sync.WaitGroup
 
 type messageToWrite struct {
@@ -54,8 +54,8 @@ func queueWarning() {
 		for {
 			select {
 			case <-ticker.C:
-				if len(numbersChannel) == cap(numbersChannel) {
-					fmt.Printf("Messages queue is full %d\n", len(numbersChannel))
+				if len(numbersChannel) >= cap(numbersChannel)-1000 {
+					fmt.Printf("Messages queue is almost full %d\n", len(numbersChannel))
 				}
 			}
 		}

@@ -52,7 +52,7 @@ func InitWriter() {
 	file, err = os.Create(fileName)
 	checkCriticalError(err)
 
-	inputChan = make(chan []byte, 100000)
+	inputChan = make(chan []byte, 1000000)
 	go fileWriter()
 	go queueWarning()
 	wg.Add(1)
@@ -89,8 +89,8 @@ func queueWarning() {
 		for {
 			select {
 			case <-ticker.C:
-				if len(inputChan) == cap(inputChan) {
-					fmt.Printf("Writer queue is full: %d\n", len(inputChan))
+				if len(inputChan) >= cap(inputChan)-1000 {
+					fmt.Printf("Writer queue is almost full: %d\n", len(inputChan))
 				}
 			}
 		}
