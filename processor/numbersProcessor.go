@@ -28,17 +28,17 @@ func MessagesProcessor() {
 	ticker := time.NewTicker(10 * time.Second)
 
 	for message := range numbersChannel {
+		if recordedValues[message.integer] {
+			reporting.Duplicated()
+		} else {
+			fileWriter.WriteData(message.bytes)
+			reporting.Uniq()
+			recordedValues[message.integer] = true
+		}
 		select {
 		case <-ticker.C:
 			reporting.PrintReport()
 		default:
-			if recordedValues[message.integer] {
-				reporting.Duplicated()
-			} else {
-				fileWriter.WriteData(message.bytes)
-				reporting.Uniq()
-				recordedValues[message.integer] = true
-			}
 		}
 	}
 	wgProcessor.Done()
