@@ -9,7 +9,7 @@ import (
 )
 
 var recordedValues [1000000000]bool
-var numbersChannel = make(chan messageToWrite, 1000000)
+var numbersChannel = make(chan messageToWrite, len(recordedValues)/1000)
 var wgProcessor sync.WaitGroup
 
 type messageToWrite struct {
