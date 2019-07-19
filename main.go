@@ -70,15 +70,6 @@ func handleConnection(connection net.Conn, gracefulStop chan bool) {
 
 	reader := bufio.NewReader(connection)
 	for {
-		select {
-		case <-gracefulStop:
-			fmt.Println("Graceful stop routine")
-			_ = connection.Close()
-			gracefulStop <- true
-			return
-		default:
-		}
-
 		message, err := reader.ReadBytes('\n')
 
 		if err != nil {
@@ -95,15 +86,24 @@ func handleConnection(connection net.Conn, gracefulStop chan bool) {
 		i, err := convertToInt(message)
 		if err != nil {
 			if isTerminationSignal(message) {
+				gracefulStop <- true
 				fmt.Println("Termination signal received")
 				_ = connection.Close()
-				gracefulStop <- true
 				return
 			}
 			fmt.Printf("Invalid format: %s\n", err.Error())
 			break
 		}
 		processor.AddMessageToQueue(i, message)
+
+		select {
+		case <-gracefulStop:
+			gracefulStop <- true
+			fmt.Println("Graceful stop routine")
+			_ = connection.Close()
+			return
+		default:
+		}
 	}
 	_ = connection.Close()
 	fmt.Println("Routine closed")
