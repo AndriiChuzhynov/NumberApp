@@ -19,7 +19,24 @@ const terminationSignalMessage = "terminate"
 //const terminationSignalLen = len(terminationSignalMessage)
 
 var wg sync.WaitGroup
-var gracefulStop = make(chan bool, maxConnections)
+var gracefulStopFlag = gracefulStop{}
+
+type gracefulStop struct {
+	stop bool
+	sync.Mutex
+}
+
+func (g *gracefulStop) isStopped() bool {
+	g.Lock()
+	defer g.Unlock()
+	return g.stop
+}
+
+func (g *gracefulStop) setStopped() {
+	g.Lock()
+	g.stop = true
+	g.Unlock()
+}
 
 func main() {
 	ln, err := net.Listen("tcp", ":4000")
@@ -42,11 +59,8 @@ func run(ln net.Listener) {
 
 	for {
 		limit <- struct{}{}
-		select {
-		case <-gracefulStop:
-			gracefulStop <- true
+		if gracefulStopFlag.isStopped() {
 			return
-		default:
 		}
 
 		conn, err := ln.Accept()
@@ -58,14 +72,14 @@ func run(ln net.Listener) {
 
 		go func() {
 			wg.Add(1)
-			handleConnection(conn, gracefulStop)
+			handleConnection(conn)
 			<-limit
 			wg.Done()
 		}()
 	}
 }
 
-func handleConnection(connection net.Conn, gracefulStop chan bool) {
+func handleConnection(connection net.Conn) {
 	fmt.Println("Started a new routine")
 
 	reader := bufio.NewReader(connection)
@@ -86,7 +100,7 @@ func handleConnection(connection net.Conn, gracefulStop chan bool) {
 		i, err := convertToInt(message)
 		if err != nil {
 			if isTerminationSignal(message) {
-				gracefulStop <- true
+				gracefulStopFlag.setStopped()
 				fmt.Println("Termination signal received")
 				_ = connection.Close()
 				return
@@ -96,13 +110,10 @@ func handleConnection(connection net.Conn, gracefulStop chan bool) {
 		}
 		processor.AddMessageToQueue(i, message)
 
-		select {
-		case <-gracefulStop:
-			gracefulStop <- true
+		if gracefulStopFlag.isStopped() {
 			fmt.Println("Graceful stop routine")
 			_ = connection.Close()
 			return
-		default:
 		}
 	}
 	_ = connection.Close()
