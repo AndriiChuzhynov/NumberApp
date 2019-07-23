@@ -18,8 +18,8 @@ type messageToWrite struct {
 }
 
 func CloseMessagesProcessor() {
-	close(numbersChannel)
 	wgProcessor.Wait()
+	close(numbersChannel)
 }
 
 func MessagesProcessor() {

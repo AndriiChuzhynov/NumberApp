@@ -6,31 +6,37 @@ import (
 	"math/rand"
 	"net"
 	"strconv"
+	"sync"
 )
 
 func main() {
-	var hostname = flag.String("target", "localhost:4000", "Target hostname:port")
-	var maxConnections = flag.Int("connections", 5, "Number of connections")
+	var hostname = flag.String("target", "localhost:8888", "Target hostname:port")
+	var maxConnections = flag.Int("conn", 5, "Number of connections")
 	var termination = flag.Bool("term", false, "Termination will sent randomly")
 	var corruptedData = flag.Bool("corr", false, "corrupted data will be sent randomly")
-	var reporting = flag.Bool("rep", false, "will report to stdout")
+	var logging = flag.Bool("logg", false, "will report to stdout")
 	flag.Parse()
+	var wg sync.WaitGroup
 
 	guard := make(chan struct{}, *maxConnections)
-	i := 0
+	counter := make(chan uint64, *maxConnections)
+	routine := 0
 	for {
-		i += 1
-		routineName := i
+		routine += 1
+		routineName := routine
 		guard <- struct{}{}
-		go func() {
-			fmt.Println("NewRoutineStarted")
-			conn, err := net.Dial("tcp", *hostname)
-			if err != nil {
-				// handle error
-				fmt.Printf("Error: %s\n", err.Error())
-				return
-			}
+		fmt.Println("NewRoutineStarted")
 
+		conn, err := net.Dial("tcp", *hostname)
+
+		if err != nil {
+			fmt.Printf("Connection error: %s\n", err.Error())
+			break
+		}
+
+		wg.Add(1)
+		go func() {
+			var sent uint64 = 0
 			for {
 				var data []byte
 
@@ -41,7 +47,7 @@ func main() {
 				data = append(data, byte(10))
 
 				if *termination {
-					if rand.Intn(100000000) == 9999 {
+					if rand.Intn(7050000) == 9999 {
 						data = []byte("terminate\n")
 					}
 				}
@@ -56,17 +62,28 @@ func main() {
 					}
 				}
 
-				if *reporting {
+				if *logging {
 					fmt.Print("Routine " + strconv.Itoa(routineName) + " " + string(data))
 				}
 
 				_, err = conn.Write(data)
 				if err != nil {
-					fmt.Printf("Error: %s\n", err.Error())
+					fmt.Printf("Send error: %s\n", err.Error())
 					break
 				}
+				sent++
 			}
+			fmt.Println("RoutineStopped")
+			counter <- sent
+			wg.Done()
 			<-guard
 		}()
 	}
+	wg.Wait()
+	close(counter)
+	var sum uint64
+	for sent := range counter {
+		sum += sent
+	}
+	fmt.Printf("TotalSent: %d\n", sum)
 }

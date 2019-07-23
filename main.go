@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-const maxConnections = 5
+const maxConnections = 100
 const dataLength = 9
 const terminationSignalMessage = "terminate"
 
@@ -39,8 +39,8 @@ func (g *gracefulStop) setStopped() {
 }
 
 func main() {
-	ln, err := net.Listen("tcp", ":4000")
-	fmt.Println("Listening localhost 4000")
+	ln, err := net.Listen("tcp", ":8888")
+	fmt.Println("Listening localhost 8888")
 	if err != nil {
 		panic(err)
 	}
